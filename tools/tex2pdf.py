@@ -16,8 +16,9 @@ import glob, os, re, shutil, subprocess, sys, unicodedata
 PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT = os.path.join(PROJECT, "output")
 
-# name.date.time.paper 例如 高等数学.20261024.211500.a4
-STEM_RE = re.compile(r"^(?P<name>.+)\.(?P<ts>\d{8}\.\d{6})\.(?P<paper>a4|b5)$")
+# name.date.time.paper[.notoc] 例如 高等数学.20261024.211500.a4
+STEM_RE = re.compile(
+    r"^(?P<name>.+)\.(?P<ts>\d{8}\.\d{6})\.(?P<paper>a4|b5)(?:\.(?P<variant>notoc))?$")
 TS_DIR_RE = re.compile(r"^\d{8}\.\d{6}$")
 
 
@@ -196,7 +197,9 @@ def main():
 
         m = STEM_RE.match(stem)
         if m:
-            latest = os.path.join(OUTPUT, f"{m.group('name')}.latest.{m.group('paper')}.pdf")
+            variant = f".{m.group('variant')}" if m.group("variant") else ""
+            latest = os.path.join(
+                OUTPUT, f"{m.group('name')}.latest.{m.group('paper')}{variant}.pdf")
             shutil.copy2(pdf, latest)
         rows.append((os.path.basename(pdf), pages))
         ok_count += 1

@@ -2,11 +2,12 @@
 """
 Markdown → LaTeX 转换工具
 把 .md 笔记转换成可被 xelatex 直接编译的独立 .tex。
-命名规则: name.date.time.paper.tex
+命名规则: name.date.time.paper[.notoc].tex
 
 用法:
-  python3 tools/md2tex.py                       # 转换全部笔记（A4）
+  python3 tools/md2tex.py                       # 转换全部笔记（A4，带目录）
   python3 tools/md2tex.py --b5                  # 同时生成 B5 版
+  python3 tools/md2tex.py --no-toc              # 生成不带目录的版本（.notoc）
   python3 tools/md2tex.py 高等数学               # 只转换指定笔记
   python3 tools/md2tex.py /path/to/x.md         # 转换任意路径的笔记
   python3 tools/md2tex.py --keep-header         # 保留生成的 _header.tex（排查用）
@@ -40,11 +41,14 @@ def parse_args():
     do_b5 = "--b5" in args
     if do_b5:
         args.remove("--b5")
+    no_toc = "--no-toc" in args
+    if no_toc:
+        args.remove("--no-toc")
     keep_header = "--keep-header" in args
     if keep_header:
         args.remove("--keep-header")
     targets = [a for a in args if not a.startswith("-")]
-    return targets, do_b5, keep_header
+    return targets, do_b5, no_toc, keep_header
 
 
 def font_family(name):
@@ -106,14 +110,16 @@ def write_header():
         f.write(content)
 
 
-def pandoc_cmd(paper, math_font):
+def pandoc_cmd(paper, math_font, with_toc=True):
     cmd = [
         "pandoc",
         "-s",
         "-t", "latex",
         "--pdf-engine=xelatex",
-        "-V", "toc",
-        "-V", "toc-depth=3",
+    ]
+    if with_toc:
+        cmd += ["-V", "toc", "-V", "toc-depth=3"]
+    cmd += [
         "-V", f"CJKmainfont={CJK_FONT}",
         "-V", f"mainfont={MAIN_FONT}",
         "-V", "mainfontoptions=Mapping=tex-text",
@@ -150,7 +156,7 @@ def run(cmd):
 
 
 def main():
-    targets, do_b5, keep_header = parse_args()
+    targets, do_b5, no_toc, keep_header = parse_args()
 
     for cmd in ["pandoc"]:
         if not shutil.which(cmd):
@@ -173,6 +179,9 @@ def main():
     if CJK_FONT.lower() not in font_family(CJK_FONT).lower():
         print(f"警告: 未找到中文字体 {CJK_FONT}，PDF 可能出现豆腐块")
 
+    # 无目录版本加 .notoc 后缀，避免覆盖同名带目录文件
+    variant = ".notoc" if no_toc else ""
+
     os.makedirs(DATED_DIR, exist_ok=True)
 
     # 清理上一轮 latest
@@ -189,6 +198,7 @@ def main():
     for name, path in notes:
         print(f"    {name} <- {os.path.relpath(path, PROJECT)}")
     print(f"  字体: {MAIN_FONT} / {math_font or '默认数学字体'}")
+    print(f"  目录页: {'无（--no-toc）' if no_toc else '有'}")
     print("=" * 44)
 
     ok_count = 0
@@ -197,15 +207,17 @@ def main():
         toc_title = f"{note_name} - Contents"
 
         for short, paper in formats:
-            cmd = pandoc_cmd(paper, math_font)
-            out_name = f"{note_name}.{TIMESTAMP}.{short}.tex"
+            cmd = pandoc_cmd(paper, math_font, with_toc=not no_toc)
+            out_name = f"{note_name}.{TIMESTAMP}.{short}{variant}.tex"
             out_path = os.path.join(DATED_DIR, out_name)
-            if run(cmd + ["-V", f"toc-title={toc_title}", md_path, "-o", out_path]):
+            extra = [] if no_toc else ["-V", f"toc-title={toc_title}"]
+            if run(cmd + extra + [md_path, "-o", out_path]):
                 if os.path.getsize(out_path) < 500:
                     print(f"  {short}   -> {out_name} (文件过小，可能转换异常)")
                     continue
                 print(f"  {short}   -> {out_name}")
-                shutil.copy2(out_path, os.path.join(LATEST_DIR, f"{note_name}.latest.{short}.tex"))
+                shutil.copy2(out_path,
+                             os.path.join(LATEST_DIR, f"{note_name}.latest.{short}{variant}.tex"))
                 ok_count += 1
 
     if not keep_header and os.path.exists(TEX_HEADER):

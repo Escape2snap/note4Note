@@ -22,8 +22,9 @@ collegeNotes/
 
 ```bash
 # 1. Markdown → LaTeX
-python3 tools/md2tex.py                    # 全部笔记，A4
+python3 tools/md2tex.py                    # 全部笔记，A4，带目录
 python3 tools/md2tex.py --b5               # 同时生成 B5
+python3 tools/md2tex.py --no-toc           # 生成不带目录的版本（.notoc）
 python3 tools/md2tex.py 高等数学            # 指定笔记（支持前缀匹配）
 python3 tools/md2tex.py ./focus/xxx.md     # 任意路径的笔记
 
@@ -43,8 +44,23 @@ python3 tools/md2tex.py && python3 tools/tex2pdf.py
 | 阶段 | 产物 |
 |------|------|
 | md2tex | `name.YYYYmmdd.HHMMSS.a4.tex`、`name.YYYYmmdd.HHMMSS.b5.tex` |
+| md2tex `--no-toc` | 同上，但多一个 `.notoc` 后缀：`name.YYYYmmdd.HHMMSS.a4.notoc.tex` |
 | tex2pdf | 同名 `.pdf`（与 `.tex` 放在一起） |
-| 最新副本 | `output/name.latest.a4.pdf`、`output/name.latest.a4.tex` 等 |
+| 最新副本 | `output/name.latest.a4.pdf`、`output/name.latest.a4.notoc.pdf` 等 |
+
+### 不带目录的版本
+
+`--no-toc` 会在本次转换中**只生成**无目录的 `.tex`，文件名带 `.notoc`，
+因此不会覆盖已生成的带目录版本；要两种都留，就跑两次：
+
+```bash
+python3 tools/md2tex.py                    # 带目录
+python3 tools/md2tex.py --no-toc           # 不带目录
+python3 tools/tex2pdf.py                   # 一起编译
+```
+
+无目录版本没有 `\tableofcontents`，也就没有罗马数字页码和"正文从奇数页开始"的留白，
+正文直接从第 1 页排起，适合打印或快速翻阅。
 
 ## 排版约定（沿用 noteANote）
 
