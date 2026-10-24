@@ -249,7 +249,9 @@ class DocumentStore:
         if not supported_extension(resolved):
             raise ConversionError(f"不支持的文件类型: {resolved.suffix or '(无扩展名)'}")
 
-        converted: ConvertedDocument = convert_file(resolved)
+        converted: ConvertedDocument = convert_file(
+            resolved, temp_dir=self.tmp_dir
+        )
         stat = resolved.stat()
         digest = sha256_file(resolved)
         now = utc_now()

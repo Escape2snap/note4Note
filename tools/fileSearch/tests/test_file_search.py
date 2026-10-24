@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import shutil
 import sys
@@ -15,6 +16,7 @@ import zipfile
 from pathlib import Path
 
 TOOL_ROOT = Path(__file__).resolve().parents[1]
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 sys.path.insert(0, str(TOOL_ROOT))
 
 from file_search.config import Config, ConfigError  # noqa: E402
@@ -322,6 +324,44 @@ class StoreAndSearchTests(unittest.TestCase):
         hits = search_documents(self.store.snapshot(), "新的关键词")
         self.assertEqual(hits["total"], 1)
         self.assertEqual(hits["results"][0]["page"], 1)
+
+    @unittest.skipUnless(
+        (shutil.which("soffice") or shutil.which("libreoffice"))
+        and shutil.which("pdftotext"),
+        "需要 LibreOffice 与 poppler-utils",
+    )
+    def test_legacy_doc_and_ppt_import(self) -> None:
+        for extension in ("doc", "ppt"):
+            target = self.root / f"legacy_sample.{extension}"
+            target.write_bytes(
+                gzip.decompress(
+                    (FIXTURES / f"legacy_sample.{extension}.gz").read_bytes()
+                )
+            )
+
+        imported, errors = self.store.import_paths(
+            ["legacy_sample.doc", "legacy_sample.ppt"]
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual({meta.name for meta in imported}, {
+            "legacy_sample.doc",
+            "legacy_sample.ppt",
+        })
+        for meta in imported:
+            self.assertEqual(meta.page_count, 2, meta.name)
+            document = self.store.get(meta.id)
+            self.assertIn("目标词", document.pages[1])
+        self.assertEqual(list(self.store.tmp_dir.iterdir()), [])
+
+        hits = search_documents(self.store.snapshot(), "目标词")
+        self.assertEqual(hits["total"], 2)
+        self.assertEqual(
+            {(item["file_name"], item["page"]) for item in hits["results"]},
+            {
+                ("legacy_sample.doc", 2),
+                ("legacy_sample.ppt", 2),
+            },
+        )
 
     def test_unsupported_and_missing_paths(self) -> None:
         (self.root / "file.bin").write_bytes(b"abc")

@@ -7,10 +7,12 @@ the page boundaries that the file itself records.
 
 from __future__ import annotations
 
+import os
 import posixpath
 import re
 import shutil
 import subprocess
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -29,6 +31,8 @@ A = "{" + A_NS + "}"
 P = "{" + P_NS + "}"
 R = "{" + R_NS + "}"
 DC = "{" + DC_NS + "}"
+
+LEGACY_OFFICE_EXTENSIONS = frozenset({".doc", ".ppt"})
 
 PLAIN_TEXT_EXTENSIONS = {
     ".txt",
@@ -460,7 +464,7 @@ def _convert_pptx(path: Path) -> ConvertedDocument:
     )
 
 
-def _convert_pdf(path: Path) -> ConvertedDocument:
+def _pdf_pages(path: Path) -> tuple[str, ...]:
     executable = shutil.which("pdftotext")
     if not executable:
         raise ConversionError(
@@ -481,11 +485,134 @@ def _convert_pdf(path: Path) -> ConvertedDocument:
         raise ConversionError(f"pdftotext 转换失败: {detail or '未知错误'}")
 
     text = result.stdout.decode("utf-8", errors="replace")
+    return _split_text_pages(text)
+
+
+def _convert_pdf(path: Path) -> ConvertedDocument:
     return ConvertedDocument(
-        pages=_split_text_pages(text),
+        pages=_pdf_pages(path),
         format="pdf",
         encoding="utf-8",
     )
+
+
+def _soffice_executable() -> str | None:
+    return shutil.which("soffice") or shutil.which("libreoffice")
+
+
+def _legacy_dependency_help() -> str:
+    return (
+        "旧版 .doc/.ppt 转换需要 LibreOffice 和 poppler-utils。"
+        "Debian/Ubuntu 可安装：sudo apt-get install -y --no-install-recommends "
+        "libreoffice-writer libreoffice-impress poppler-utils"
+    )
+
+
+def _convert_legacy_office(
+    path: Path,
+    temp_dir: Path,
+) -> ConvertedDocument:
+    """Convert binary Word/PowerPoint through LibreOffice's PDF exporter.
+
+    The source is copied into a private work directory under .fileSearch/tmp so
+    LibreOffice's lock files, user profile, caches and PDF output never land
+    next to the source document. The PDF is then split into physical pages by
+    pdftotext.
+    """
+
+    soffice = _soffice_executable()
+    pdftotext = shutil.which("pdftotext")
+    if not soffice or not pdftotext:
+        raise ConversionError(_legacy_dependency_help())
+
+    suffix = path.suffix.lower()
+    temp_dir = temp_dir.expanduser().resolve()
+    try:
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        work_dir = Path(
+            tempfile.mkdtemp(prefix=f"legacy-{suffix[1:]}-", dir=str(temp_dir))
+        )
+    except OSError as exc:
+        raise ConversionError(
+            f"无法创建旧版 Office 转换临时目录 {temp_dir}: {exc}"
+        ) from exc
+
+    try:
+        input_file = work_dir / f"input{suffix}"
+        output_dir = work_dir / "out"
+        output_dir.mkdir()
+        home_dir = work_dir / "home"
+        config_dir = work_dir / "config"
+        cache_dir = work_dir / "cache"
+        run_tmp_dir = work_dir / "tmp"
+        for directory in (home_dir, config_dir, cache_dir, run_tmp_dir):
+            directory.mkdir()
+        profile_dir = work_dir / "profile"
+
+        try:
+            shutil.copyfile(path, input_file)
+        except OSError as exc:
+            raise ConversionError(f"无法复制旧版 Office 文件到临时目录: {exc}") from exc
+
+        env = os.environ.copy()
+        env.update(
+            {
+                "HOME": str(home_dir),
+                "XDG_CONFIG_HOME": str(config_dir),
+                "XDG_CACHE_HOME": str(cache_dir),
+                "TMPDIR": str(run_tmp_dir),
+                "SAL_USE_VCLPLUGIN": "svp",
+            }
+        )
+        command = [
+            soffice,
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nolockcheck",
+            "--nofirststartwizard",
+            "--norestore",
+            f"-env:UserInstallation={profile_dir.resolve().as_uri()}",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(output_dir),
+            str(input_file),
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                check=False,
+                timeout=300,
+                cwd=str(work_dir),
+                env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ConversionError(
+                "LibreOffice 转换超时（300 秒），文件可能过大或已损坏"
+            ) from exc
+        except OSError as exc:
+            raise ConversionError(f"无法运行 LibreOffice: {exc}") from exc
+
+        pdf_files = sorted(output_dir.glob("*.pdf"))
+        if result.returncode != 0 or not pdf_files:
+            stderr = result.stderr.decode("utf-8", errors="replace").strip()
+            stdout = result.stdout.decode("utf-8", errors="replace").strip()
+            detail = stderr or stdout or "LibreOffice 没有生成 PDF"
+            detail = " ".join(detail.split())
+            if len(detail) > 500:
+                detail = detail[:500] + "…"
+            raise ConversionError(f"LibreOffice 转换失败: {detail}")
+
+        pages = _pdf_pages(pdf_files[0])
+        return ConvertedDocument(
+            pages=pages,
+            format=suffix.lstrip("."),
+            encoding="utf-8",
+        )
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 _CONVERTERS: dict[str, Callable[[Path], ConvertedDocument]] = {
@@ -499,15 +626,22 @@ _CONVERTERS: dict[str, Callable[[Path], ConvertedDocument]] = {
 for _suffix in PLAIN_TEXT_EXTENSIONS:
     _CONVERTERS[_suffix] = _convert_plain
 
-SUPPORTED_EXTENSIONS = frozenset(_CONVERTERS)
+SUPPORTED_EXTENSIONS = frozenset(_CONVERTERS) | LEGACY_OFFICE_EXTENSIONS
 
 
-def convert_file(path: Path) -> ConvertedDocument:
-    """Convert one supported file to pages of plain text."""
+def convert_file(
+    path: Path,
+    temp_dir: Path | None = None,
+) -> ConvertedDocument:
+    """Convert one supported file to pages of plain text.
+
+    temp_dir is supplied by DocumentStore so legacy Office conversion only
+    writes its work files under .fileSearch/tmp. When called directly it falls
+    back to ./.fileSearch/tmp in the current execution directory.
+    """
 
     suffix = path.suffix.lower()
-    converter = _CONVERTERS.get(suffix)
-    if converter is None:
+    if suffix not in SUPPORTED_EXTENSIONS:
         accepted = ", ".join(sorted(SUPPORTED_EXTENSIONS))
         raise ConversionError(
             f"不支持的文件类型 {suffix or '(无扩展名)'}；支持: {accepted}"
@@ -516,7 +650,15 @@ def convert_file(path: Path) -> ConvertedDocument:
         raise ConversionError(f"文件不存在或不是普通文件: {path}")
 
     try:
-        converted = converter(path)
+        if suffix in LEGACY_OFFICE_EXTENSIONS:
+            work_root = (
+                temp_dir
+                if temp_dir is not None
+                else Path.cwd() / ".fileSearch" / "tmp"
+            )
+            converted = _convert_legacy_office(path, work_root)
+        else:
+            converted = _CONVERTERS[suffix](path)
     except ConversionError:
         raise
     except ET.ParseError as exc:

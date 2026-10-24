@@ -60,7 +60,7 @@ python3 tools/tex2pdf.py --once            # 只跑一遍 xelatex
 
 ## 文件内容搜索（fileSearch）
 
-`tools/fileSearch` 是一个独立的本地搜索工具：把 DOCX/PPTX/TXT/Markdown/PDF 等文件转成
+`tools/fileSearch` 是一个独立的本地搜索工具：把 DOCX/PPTX/DOC/PPT/TXT/Markdown/PDF 等文件转成
 txt 缓存到 `./.fileSearch`，加载进内存后通过 JSON API 做关键词搜索，支持跨行命中、
 上下文窗口、按页/按行读取。配置和缓存也都在 `./.fileSearch` 下，下次无参数启动自动加载。
 
@@ -149,12 +149,15 @@ fc-match "STIX Two Math"
 - **Python 3.10+**；无第三方 Python 包，不需要 pip 安装。
 - **PDF 可选依赖**：`pdftotext`（Debian/Ubuntu 包名 `poppler-utils`）。不导入 PDF 时不需要；
   上面的 `pdfinfo` 也来自同一个包。
+- **旧版 `.doc` / `.ppt` 可选依赖**：LibreOffice Writer + Impress，以及 `pdftotext`。
+  工具会用无头 LibreOffice 转 PDF，再提取分页文本。
 - DOCX/PPTX 解析使用标准库，不需要 `python-docx`、`python-pptx`。
-- 测试使用标准库 `unittest`，不需要 pytest。
+- 测试使用标准库 `unittest`，不需要 pytest；缺少 LibreOffice/poppler 时旧版 Office 测试跳过。
 
 ```bash
-# 可选：PDF 支持
-sudo apt-get install -y poppler-utils
+# 可选：PDF 与旧版 .doc/.ppt 支持
+sudo apt-get install -y --no-install-recommends \
+  libreoffice-writer libreoffice-impress poppler-utils
 ```
 
 详细依赖与 API 见 [tools/fileSearch/README.md](tools/fileSearch/README.md)。

@@ -3,7 +3,7 @@
 本地文件文档内容搜索 API。默认打开 `http://127.0.0.1:5872`，所有接口返回 JSON，
 配置、索引和 txt 缓存统一放在执行目录的 `./.fileSearch` 下。
 
-- 导入 `.pptx`、`.docx`、`.txt`、`.md`、`.pdf`、`.html` 等文件，并缓存为 txt
+- 导入 `.pptx`、`.docx`、`.ppt`、`.doc`、`.txt`、`.md`、`.pdf`、`.html` 等文件，并缓存为 txt
 - 启动时把 txt 加载进内存，搜索不重复读盘
 - 关键词搜索，支持跨行命中和可配置的上下文窗口
 - 返回文件名、页码、起始/结束行号、上下文和可直接高亮的片段
@@ -20,19 +20,25 @@
   `python-docx`、`python-pptx`，也不需要 pip 镜像。
 - **PDF 可选依赖**：`pdftotext`（Debian/Ubuntu 包名 `poppler-utils`）。
   只有导入 PDF 时才需要；文件会按 PDF 物理页切分。
+- **旧版 Office 可选依赖**：导入 `.doc` / `.ppt` 需要 LibreOffice
+  （Writer + Impress）和上面的 `pdftotext`。工具会调用无头 LibreOffice 将文件转成
+  PDF，再用 pdftotext 保留 Word 分页 / PPT 幻灯片页。
 
 ```bash
-# 可选：启用 PDF 支持（Debian / Ubuntu）
+# 可选：启用 PDF 和旧版 .doc/.ppt 支持（Debian / Ubuntu）
 sudo apt-get update
-sudo apt-get install -y poppler-utils
+sudo apt-get install -y --no-install-recommends \
+  libreoffice-writer libreoffice-impress poppler-utils
 
 # 检查
+soffice --headless --version
 pdftotext -v
 ```
 
 ### 开发/测试依赖
 
-无。测试使用 Python 标准库 `unittest`，不需要 pytest。
+无额外 Python 依赖。测试使用标准库 `unittest`，不需要 pytest；
+旧版 Office 测试在缺少 LibreOffice 或 poppler 时会自动跳过。
 
 ### 本仓库其他工具的依赖
 
@@ -129,7 +135,7 @@ python3 tools/fileSearch/fileSearch.py [选项]
 │   ├── index.json           # 已导入文件元数据和缓存对应关系
 │   ├── cache/
 │   │   └── <id>.txt         # 转换后的纯文本；\f 分页
-│   └── tmp/                 # 原子写入使用的临时文件，正常情况下为空
+│   └── tmp/                 # 原子写入与 LibreOffice 转换的临时工作区，结束后清空
 ├── notes.md                 # 源文件，不会被修改
 └── ...
 ```
@@ -148,7 +154,9 @@ python3 tools/fileSearch/fileSearch.py [选项]
 - 删除某个缓存 txt 后，下次启动会尝试从源文件重建。
 - 源文件被删除但缓存还在时，仍可以搜索缓存内容。
 - 修改源文件后，调用 `POST /api/reindex`，或重启时加 `--reindex` 更新缓存。
-- 索引和缓存都写在 `.fileSearch` 内；导出工具等生成的其他文件不受影响。
+- 索引和缓存都写在 `.fileSearch` 内；旧版 Office 转换时复制的源文件、LibreOffice 用户配置、
+  PDF 中间产物和临时文件也都限定在 `.fileSearch/tmp`，转换结束即清理。
+- 导出工具等生成的其他文件不受影响。
 
 ## API
 
@@ -325,6 +333,8 @@ curl -sS 'http://127.0.0.1:5872/api/files/<file_id>/lines?page=2'
 | `.txt`, `.text`, `.md`, `.markdown`, `.mdown`, `.mkd`, `.rst`, `.log`, `.csv`, `.json`, `.yaml`, `.yml`, `.tex` | 按文本读取，自动尝试 UTF-8/UTF-16/UTF-32/GB18030/Big5 | 文本中的换页符 `\f`；没有则第 1 页 |
 | `.docx` | 标准库读取 OOXML 段落、换行和表格文本 | 显式分页符、`lastRenderedPageBreak`、段落“段前分页”；没有则第 1 页 |
 | `.pptx` | 标准库按 presentation 顺序读取幻灯片文本 | 每张幻灯片一页 |
+| `.doc` | LibreOffice Writer → PDF → `pdftotext -layout` | Word 排版后的物理页 |
+| `.ppt` | LibreOffice Impress → PDF → `pdftotext -layout` | 每张幻灯片一页 |
 | `.pdf` | `pdftotext -layout` | PDF 物理页 |
 | `.html`, `.htm` | 标准库 HTMLParser 去标签 | `\f`；没有则第 1 页 |
 
@@ -333,6 +343,8 @@ curl -sS 'http://127.0.0.1:5872/api/files/<file_id>/lines?page=2'
 - Markdown 按原始文本索引（保留标记符号），不做渲染。
 - DOCX 不进行桌面排版，因此没有显式/渲染分页信息的文档会是一页。
 - PPTX 只取幻灯片中的文本，不读取备注、图片 OCR、图表数据。
+- DOC/PPT 通过 LibreOffice 排版后取页，首次导入会比 DOCX/PPTX 慢。
+- 旧版 Office 和 PDF 一样只提取已有文字；图片里的文字需要 OCR。
 - 扫描版 PDF 需要 OCR 后才能得到文本；本工具不做 OCR。
 - 缓存 txt 使用 `\f` 分隔页，页内用 `\n` 分行。可直接查看：
 
@@ -363,4 +375,5 @@ TODO：
 python3 -m unittest discover -s tools/fileSearch/tests -v
 ```
 
-测试覆盖文本跨行、DOCX/PPTX 转换、分页/行读取、无鉴权 API、导入和配置持久化。
+测试覆盖文本跨行、DOCX/PPTX/PDF/旧版 DOC/PPT 转换、分页/行读取、无鉴权 API、
+导入和配置持久化。缺少 LibreOffice 或 poppler 时，旧版 Office 测试会跳过。
