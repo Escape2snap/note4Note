@@ -1,0 +1,68 @@
+% 列表间距与对齐
+\usepackage{enumitem}
+\let\tightlist\relax
+\setlist{itemsep=0.5em, parsep=0.3em}
+
+% 表格列宽
+\setlength{\tabcolsep}{10pt}
+
+% 图像绘制
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{positioning, trees, arrows.meta}
+
+%%% 字体说明 %%%
+% 主字体 → Noto Serif CJK SC（由 export.py 的 -V 参数传给 pandoc）
+% 数学字体 → STIX Math（覆盖绝大多数数学符号）
+% 不常见 Unicode 符号（如 ⟷⇏⇎ 等）→ 由 tools/unicode2latex.lua 提前替换为 LaTeX 命令
+% XeLaTeX 不支持 RawFeature=fallback（那是 LuaLaTeX 的 luaotfload 特性）
+% 故不在此处做字体级回退，而是靠 Lua filter 在标记→LaTeX 阶段完成转换
+
+%%% 表格交替行底色 %%%
+\usepackage[table]{xcolor}
+\rowcolors{2}{gray!12}{white}
+
+% 目录独立页码（罗马数字），目录结束后推到奇数页开始正文
+\usepackage{etoolbox}
+\AtBeginDocument{%
+  \pretocmd{\tableofcontents}{\pagenumbering{Roman}}{}{}%
+  \apptocmd{\tableofcontents}{%
+    \newpage
+    \ifodd\value{page}\relax\else\thispagestyle{empty}\null\newpage\fi
+    \pagenumbering{arabic}%
+  }{}{}%
+}
+
+% 页眉页脚：边缘标识（双面打印，主体2cm，标识突出到1cm）
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+
+% 页眉向两侧延伸1cm（主体2cm → 标识位于1cm处）
+\fancyhfoffset[RO]{1cm}
+\fancyhfoffset[LE]{1cm}
+
+% 页眉：外侧显示当前章节（灰底）
+% \rightmark 取本页第一个标题，即"翻到这一页时所在的章节"；
+% 三级标题都写 \markboth（left 与 right 同步），否则页面从 \section 起头时
+% right 为空，页眉会变成一个空灰块。
+\fancyhead[RO]{\colorbox{gray!15}{\rightmark}}
+\fancyhead[LE]{\colorbox{gray!15}{\rightmark}}
+
+% 页脚：外侧显示页码 + 内侧导出时间
+\fancyfoot[RO]{\thepage}
+\fancyfoot[LE]{\thepage}
+\fancyfoot[LO]{EXPORTTIME}
+\fancyfoot[RE]{EXPORTTIME}
+
+%  plain 风格继承 fancy（解决 \section 首页丢失页眉）
+\fancypagestyle{plain}{}
+\AtBeginDocument{\pagestyle{fancy}}
+
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\makeatletter
+\renewcommand{\sectionmark}[1]{\markboth{#1}{#1}}
+\renewcommand{\subsectionmark}[1]{\markboth{#1}{#1}}
+\renewcommand{\subsubsectionmark}[1]{\markboth{#1}{#1}}
+\makeatother
