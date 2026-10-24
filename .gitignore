@@ -1,4 +1,5 @@
 output/
+.fileSearch/
 tools/_header.tex
 tools/_temp_header.tex
 __pycache__/

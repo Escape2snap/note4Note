@@ -8,12 +8,17 @@
 ```
 collegeNotes/
 ├── *.md                    # 笔记正文（README.md / CLAUDE.md 不参与导出）
+├── .fileSearch/            # fileSearch 运行时生成（已加入 .gitignore）
 ├── tools/
 │   ├── export.py           # 一步导出：md2tex → tex2pdf
 │   ├── md2tex.py           # Markdown → .tex（pandoc + LaTeX 头 + Unicode 过滤器）
 │   ├── tex2pdf.py          # .tex → .pdf（xelatex，自动补跑目录/交叉引用）
 │   ├── list-spacing.tex    # LaTeX 头：页眉页脚、目录页码、表格底色、pgfplots/tikz
-│   └── unicode2latex.lua   # Unicode 上下标/箭头 → LaTeX
+│   ├── unicode2latex.lua   # Unicode 上下标/箭头 → LaTeX
+│   └── fileSearch/         # 本地文档内容搜索 API（独立工具）
+│       ├── fileSearch.py   # 启动入口
+│       ├── file_search/    # 转换、索引、搜索、HTTP API
+│       └── README.md       # API 与配置说明
 └── output/
     ├── <timestamp>/        # 每次转换的 .tex 与 .pdf
     └── *.latest.*          # 最新一次的副本
@@ -52,6 +57,32 @@ python3 tools/tex2pdf.py --once            # 只跑一遍 xelatex
 ```
 
 三个脚本都带执行权限，也可以直接 `./tools/export.py`、`./tools/md2tex.py`、`./tools/tex2pdf.py`。
+
+## 文件内容搜索（fileSearch）
+
+`tools/fileSearch` 是一个独立的本地搜索工具：把 DOCX/PPTX/TXT/Markdown/PDF 等文件转成
+txt 缓存到 `./.fileSearch`，加载进内存后通过 JSON API 做关键词搜索，支持跨行命中、
+上下文窗口、按页/按行读取。配置和缓存也都在 `./.fileSearch` 下，下次无参数启动自动加载。
+
+```bash
+# 启动（默认 http://127.0.0.1:5872）
+python3 tools/fileSearch/fileSearch.py
+
+# 导入当前目录下的文档
+curl -sS -X POST http://127.0.0.1:5872/api/import \
+  -H 'Content-Type: application/json' \
+  -d '{"path": ".", "recursive": true}'
+
+# 搜索
+curl -sS --get http://127.0.0.1:5872/api/search \
+  --data-urlencode 'q=科学'
+```
+
+端口、监听地址、上下文窗口可用 `--port` / `--host` / `--context-chars` 指定，并会写回
+`./.fileSearch/config.json`。完整依赖、API、分页规则和安全说明见
+[fileSearch README](tools/fileSearch/README.md)。
+
+> 默认无鉴权且只监听 `127.0.0.1`。不要把无鉴权端口直接暴露到不可信网络；鉴权在 TODO 中。
 
 ## 命名规则
 
@@ -112,3 +143,18 @@ fc-match "STIX Two Math"
 ```
 
 字体名不一致时，改 `tools/md2tex.py` 顶部的 `CJK_FONT` / `MAIN_FONT` / `MATH_FONT_CANDIDATES`。
+
+### fileSearch
+
+- **Python 3.10+**；无第三方 Python 包，不需要 pip 安装。
+- **PDF 可选依赖**：`pdftotext`（Debian/Ubuntu 包名 `poppler-utils`）。不导入 PDF 时不需要；
+  上面的 `pdfinfo` 也来自同一个包。
+- DOCX/PPTX 解析使用标准库，不需要 `python-docx`、`python-pptx`。
+- 测试使用标准库 `unittest`，不需要 pytest。
+
+```bash
+# 可选：PDF 支持
+sudo apt-get install -y poppler-utils
+```
+
+详细依赖与 API 见 [tools/fileSearch/README.md](tools/fileSearch/README.md)。
