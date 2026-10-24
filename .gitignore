@@ -1,0 +1,10 @@
+output/
+tools/_header.tex
+tools/_temp_header.tex
+__pycache__/
+*.pyc
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
