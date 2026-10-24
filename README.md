@@ -1,7 +1,7 @@
 # collegeNotes
 
-大学课程笔记，Markdown 编写，经 `md2tex` → `tex2pdf` 两步导出为 PDF（A4/B5）。
-工具与排版风格取自 [noteANote](https://github.com/Escape2snap/noteANote) 的导出流水线，拆成了两个独立的阶段。
+大学课程笔记，Markdown 编写，经 `md2tex` → `tex2pdf` 导出为 PDF（A4/B5）。
+工具与排版风格取自 [noteANote](https://github.com/Escape2snap/noteANote) 的导出流水线，拆成了两个独立的阶段，再用 `export.py` 串成一步。
 
 ## 结构
 
@@ -9,6 +9,7 @@
 collegeNotes/
 ├── *.md                    # 笔记正文（README.md / CLAUDE.md 不参与导出）
 ├── tools/
+│   ├── export.py           # 一步导出：md2tex → tex2pdf
 │   ├── md2tex.py           # Markdown → .tex（pandoc + LaTeX 头 + Unicode 过滤器）
 │   ├── tex2pdf.py          # .tex → .pdf（xelatex，自动补跑目录/交叉引用）
 │   ├── list-spacing.tex    # LaTeX 头：页眉页脚、目录页码、表格底色、pgfplots/tikz
@@ -19,6 +20,22 @@ collegeNotes/
 ```
 
 ## 使用
+
+### 一步导出（推荐）
+
+```bash
+python3 tools/export.py                    # 全部笔记 → A4 PDF（带目录）
+python3 tools/export.py --b5               # A4 + B5
+python3 tools/export.py --no-toc           # 无目录版本
+python3 tools/export.py 高等数学            # 只导出指定笔记
+python3 tools/export.py --once             # xelatex 只跑一遍
+```
+
+`export.py` 支持 md2tex 与 tex2pdf 的全部开关（`--b5`、`--no-toc`、`--keep-header`、`--once`），
+转换失败会直接停止，不会去编译旧的 `.tex`。
+等价于 `python3 tools/md2tex.py [选项] && python3 tools/tex2pdf.py`。
+
+### 分步执行
 
 ```bash
 # 1. Markdown → LaTeX
@@ -32,12 +49,9 @@ python3 tools/md2tex.py ./focus/xxx.md     # 任意路径的笔记
 python3 tools/tex2pdf.py                   # 编译最新一次转换的全部 .tex
 python3 tools/tex2pdf.py 高等数学           # 只编译指定笔记
 python3 tools/tex2pdf.py --once            # 只跑一遍 xelatex
-
-# 一条命令跑完
-python3 tools/md2tex.py && python3 tools/tex2pdf.py
 ```
 
-两个脚本都带执行权限，也可以直接 `./tools/md2tex.py`、`./tools/tex2pdf.py`。
+三个脚本都带执行权限，也可以直接 `./tools/export.py`、`./tools/md2tex.py`、`./tools/tex2pdf.py`。
 
 ## 命名规则
 
